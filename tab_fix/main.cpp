@@ -3,8 +3,13 @@
 #include <strsafe.h>
 #include <tlhelp32.h>
 #include <winuser.h>
+#include <shellapi.h>
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+
+#define VK_SECTION VK_OEM_3
+#define MAX_WINDOWS 1024
+#define WM_TRAYICON (WM_USER + 1)
 
 const int TEXT_SIZE = 32;
 
@@ -15,7 +20,6 @@ typedef struct {
     wchar_t className[256];
 } WindowInfo;
 
-#define MAX_WINDOWS 1024
 WindowInfo windows[MAX_WINDOWS];
 
 typedef struct {
@@ -32,6 +36,7 @@ void SwitchToWindow(HWND hwnd)
     if (IsIconic(hwnd))
         ShowWindow(hwnd, SW_RESTORE);
     SetForegroundWindow(hwnd);
+	SetFocus(hwnd);
 }
 
 // Helper: get process name from PID
@@ -65,21 +70,45 @@ wchar_t GetFirstLetterOfProcess(WindowInfo* wi)
     return L'?';
 }
 
+// Helper: adding an icon to the tray
+void AddTrayIcon(HWND hwnd, HICON hIcon)
+{
+    NOTIFYICONDATAW nid = {0};
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_TRAYICON;
+    nid.hIcon = (HICON)LoadImageW(NULL, MAKEINTRESOURCEW(IDI_APPLICATION),
+                               IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
+    StringCchCopyW(nid.szTip, ARRAYSIZE(nid.szTip), L"tab_fix");
+    Shell_NotifyIconW(NIM_ADD, &nid);
+}
+
+void RemoveTrayIcon(HWND hwnd)
+{
+    NOTIFYICONDATAW nid = {0};
+    nid.cbSize = sizeof(NOTIFYICONDATAW);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    Shell_NotifyIconW(NIM_DELETE, &nid);
+}
+
 // EnumWindows callback to fill g_windowList
 BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
 {
     WindowList* list = (WindowList*)lParam;
     if (list->count >= list->capacity)
-        return FALSE; // stop if capacity reached
+        return FALSE; 
 
-    if (!IsWindowVisible(hwnd)) return TRUE; // skip invisible
+    if (!IsWindowVisible(hwnd)) return TRUE; 
 
     wchar_t title[256];
     GetWindowTextW(hwnd, title, sizeof(title)/sizeof(title[0]));
-    if (wcslen(title) == 0) return TRUE; // skip untitled
+    if (wcslen(title) == 0) return TRUE; 
 
-    if ((GetWindowLong(hwnd, GWL_STYLE) & WS_CHILD) != 0) return TRUE; // skip child
-    if ((GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return TRUE; // skip tool windows
+    if ((GetWindowLong(hwnd, GWL_STYLE) & WS_CHILD) != 0) return TRUE; 
+    if ((GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0) return TRUE; 
 
     DWORD pid;
     GetWindowThreadProcessId(hwnd, &pid);
@@ -94,7 +123,7 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
     GetClassNameW(hwnd, className, 256);
     if (wcscmp(className, L"Progman") == 0) return TRUE; // skip desktop
 
-    // Skip UWP Settings window
+    // skip UWP Settings window
     if (wcscmp(className, L"ApplicationFrameWindow") == 0 && wcscmp(title, L"Settings") == 0)
         return TRUE;
 
@@ -108,10 +137,8 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam)
     return TRUE;
 }
 
-// main
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
-    // Window class
     WNDCLASSW wc = {0};
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInstance;
@@ -120,26 +147,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     RegisterClassW(&wc);
 
-    // Initial dummy size
     int clientW = 1200;
     int clientH = 100;
 
     HWND hwnd = CreateWindowExW(
-        0,
+        WS_EX_TOOLWINDOW,
         wc.lpszClassName,
         L"",
         WS_POPUP,
         CW_USEDEFAULT, CW_USEDEFAULT, clientW, clientH,
         NULL, NULL, hInstance, NULL
     );
+
+	HICON hTrayIcon = LoadIconW(NULL, IDI_APPLICATION);
+	AddTrayIcon(hwnd, hTrayIcon);
+
     if (!hwnd) return 0;
 
-    // Start hidden
     ShowWindow(hwnd, SW_HIDE);
 
-    // Register Ctrl+B hotkey
-    if (!RegisterHotKey(hwnd, 1, MOD_CONTROL, 'B')) {
-        MessageBoxW(NULL, L"Failed to register hotkey Ctrl+B", L"Error", MB_OK);
+    // hotkey: Ctrl+Space
+    if (!RegisterHotKey(hwnd, 1, MOD_CONTROL, VK_SPACE)) {
+        MessageBoxW(NULL, L"Failed to register hotkey Ctrl+Space", L"Error", MB_OK);
     }
 
     MSG msg;
@@ -178,12 +207,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                         WindowInfo* wi = &g_windowList.array[i];
                         wchar_t firstLetter = GetFirstLetterOfProcess(wi);
                         int idx = firstLetter - L'a';
-                        if (idx < 0 || idx >= 26) idx = 26-1; // fallback
+                        if (idx < 0 || idx >= 26) idx = 26-1;
                         wchar_t secondLetter = L'a' + letterCount[idx];
-                        letterCount[idx]++; // increment for next window with same first letter
+                        letterCount[idx]++;
                         wchar_t expectedId[3] = { firstLetter, secondLetter, L'\0' };
                         if (wcscmp(idBuffer, expectedId) == 0) {
-                            // Match found
                             SwitchToWindow(wi->hwnd);
                             ShowWindow(hwnd, SW_HIDE);
                             break;
@@ -195,9 +223,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
         } break;
 
-
     case WM_HOTKEY:
-        if (wParam == 1) // Ctrl+B
+        if (wParam == 1)
         {
             // Refresh window list
             g_windowList.count = 0;
@@ -233,7 +260,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         RECT rect;
         GetClientRect(hwnd, &rect);
 
-        // Draw blue background
         HBRUSH brush = CreateSolidBrush(RGB(5,22,80));
         FillRect(hdc, &rect, brush);
         DeleteObject(brush);
@@ -258,19 +284,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             WindowInfo* wi = &g_windowList.array[i];
 
-            // get identifier/bind/shortcut
 			wchar_t firstLetter = GetFirstLetterOfProcess(wi);
 			int idx = firstLetter - L'a';
-			if (idx < 0 || idx >= 26) idx = 26-1; // fallback
+			if (idx < 0 || idx >= 26) idx = 26-1; 
 			wchar_t secondLetter = L'a' + letterCount[idx];
-			letterCount[idx]++; // increment for next window with same first letter
+			letterCount[idx]++; 
 
-			wchar_t id[3] = { firstLetter, secondLetter, L'\0' }; // build 2-letter id
-
-            // Get window icon
+			wchar_t id[3] = { firstLetter, secondLetter, L'\0' }; 
+            
             HICON hIcon = (HICON)SendMessageW(wi->hwnd, WM_GETICON, ICON_BIG, 0);
             if (!hIcon) hIcon = (HICON)GetClassLongPtrW(wi->hwnd, GCLP_HICONSM);
-            if (!hIcon) hIcon = (HICON)LoadIconW(NULL, IDI_APPLICATION);
+			if (!hIcon) hIcon = (HICON)LoadImageW(NULL, MAKEINTRESOURCEW(IDI_APPLICATION),
+                               IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
 
             DrawIconEx(hdc, iconX, y, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
 
@@ -287,11 +312,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    case WM_DESTROY:
-        UnregisterHotKey(hwnd, 1);
-        PostQuitMessage(0);
-        return 0;
-    }
+
+	case WM_TRAYICON:
+		if (lParam == WM_RBUTTONUP) {
+			POINT pt;
+			GetCursorPos(&pt);
+
+			HMENU hMenu = CreatePopupMenu();
+			AppendMenuW(hMenu, MF_STRING, 1001, L"Exit");
+			SetForegroundWindow(hwnd);
+			TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, NULL);
+			DestroyMenu(hMenu);
+		}
+		break;
+
+	case WM_COMMAND:
+		if (LOWORD(wParam) == 1001) {
+			PostQuitMessage(0);
+		}
+		break;
+
+		case WM_DESTROY:
+			UnregisterHotKey(hwnd, 1);
+			PostQuitMessage(0);
+			return 0;
+		}
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
