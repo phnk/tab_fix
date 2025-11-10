@@ -143,7 +143,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = hInstance;
     wc.lpszClassName = L"BorderlessRect";
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = NULL;
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
     RegisterClassW(&wc);
 
@@ -257,11 +257,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
 
-        RECT rect;
-        GetClientRect(hwnd, &rect);
+        RECT client;
+        GetClientRect(hwnd, &client);
+        int width = client.right - client.left;
+		int height = client.bottom - client.top;
+
+		HDC memDC = CreateCompatibleDC(hdc);
+		HBITMAP hBmp = CreateCompatibleBitmap(hdc, width, height);
+		HBITMAP hOldBmp = (HBITMAP)SelectObject(memDC, hBmp);
+
 
         HBRUSH brush = CreateSolidBrush(RGB(5,22,80));
-        FillRect(hdc, &rect, brush);
+        FillRect(memDC, &client, brush);
         DeleteObject(brush);
 
         HFONT hFont = CreateFontW(
@@ -269,10 +276,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
             ANTIALIASED_QUALITY,FF_DONTCARE | DEFAULT_PITCH,L"Consolas"
         );
-        HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+        HFONT hOldFont = (HFONT)SelectObject(memDC, hFont);
 
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(255,255,255));
+        SetBkMode(memDC, TRANSPARENT);
+        SetTextColor(memDC, RGB(255,255,255));
 
         int iconSize = TEXT_SIZE;
         int iconX = 10;
@@ -297,21 +304,30 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			if (!hIcon) hIcon = (HICON)LoadImageW(NULL, MAKEINTRESOURCEW(IDI_APPLICATION),
                                IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED);
 
-            DrawIconEx(hdc, iconX, y, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
+            DrawIconEx(memDC, iconX, y, hIcon, iconSize, iconSize, 0, NULL, DI_NORMAL);
 
             wchar_t buf[512];
 			StringCchPrintfW(buf, 512, L"%s | %s | %s", id, wi->title, wi->className);
-            TextOutW(hdc, textX, y + (iconSize - TEXT_SIZE)/2, buf, lstrlenW(buf));
+            TextOutW(memDC, textX, y + (iconSize - TEXT_SIZE)/2, buf, lstrlenW(buf));
 
             y += iconSize + 8;
         }
 
-        SelectObject(hdc, hOldFont);
+        SelectObject(memDC, hOldFont);
         DeleteObject(hFont);
+
+		BitBlt(hdc, 0, 0, width, height, memDC, 0, 0, SRCCOPY);
+
+		SelectObject(memDC, hOldBmp);
+		DeleteObject(hBmp);
+		DeleteDC(memDC);
+
         EndPaint(hwnd, &ps);
         return 0;
     }
 
+    case WM_ERASEBKGND:
+		return 1;
 
 	case WM_TRAYICON:
 		if (lParam == WM_RBUTTONUP) {
@@ -337,7 +353,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			PostQuitMessage(0);
 			return 0;
 		}
-
     return DefWindowProcW(hwnd, msg, wParam, lParam);
-}
 
+}
