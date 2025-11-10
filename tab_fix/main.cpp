@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <wchar.h>
 
+#include "resource.h"
+
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
 #define VK_SECTION VK_OEM_3
@@ -83,7 +85,7 @@ wchar_t GetFirstLetterOfProcess(WindowInfo* wi)
 }
 
 // Helper: adding an icon to the tray
-void AddTrayIcon(HWND hwnd, HICON hIcon)
+void AddTrayIcon(HWND hwnd, HICON hIcon, HINSTANCE hInstance)
 {
     NOTIFYICONDATAW nid = {0};
     nid.cbSize = sizeof(NOTIFYICONDATAW);
@@ -91,8 +93,8 @@ void AddTrayIcon(HWND hwnd, HICON hIcon)
     nid.uID = 1;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAYICON;
-    nid.hIcon = (HICON)LoadImageW(NULL, MAKEINTRESOURCEW(IDI_APPLICATION),
-                               IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
+    nid.hIcon = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_TRAYICON),
+                               IMAGE_ICON, 36, 36, LR_DEFAULTCOLOR | LR_SHARED);
     StringCchCopyW(nid.szTip, ARRAYSIZE(nid.szTip), L"tab_fix");
     Shell_NotifyIconW(NIM_ADD, &nid);
 }
@@ -172,7 +174,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     );
 
 	HICON hTrayIcon = LoadIconW(NULL, IDI_APPLICATION);
-	AddTrayIcon(hwnd, hTrayIcon);
+	AddTrayIcon(hwnd, hTrayIcon, hInstance);
 
     if (!hwnd) return 0;
 
