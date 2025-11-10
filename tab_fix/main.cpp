@@ -4,6 +4,8 @@
 #include <tlhelp32.h>
 #include <winuser.h>
 #include <shellapi.h>
+#include <stdlib.h>
+#include <wchar.h>
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
@@ -29,6 +31,16 @@ typedef struct {
 } WindowList;
 
 WindowList g_windowList = { windows, MAX_WINDOWS, 0 };
+
+// Helper: sort on title
+int CompareWindowByTitle(const void* a, const void* b) {
+	WindowInfo* wa = (WindowInfo*)a;
+    WindowInfo* wb = (WindowInfo*)b;
+    int cmp = _wcsicmp(wa->title, wb->title);
+    if (cmp != 0) return cmp;
+
+	return _wcsicmp(wa->className, wb->className);
+}
 
 // Helper: swapping to window
 void SwitchToWindow(HWND hwnd)
@@ -229,6 +241,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             // Refresh window list
             g_windowList.count = 0;
             EnumWindows(EnumWindowsProc, (LPARAM)&g_windowList);
+
+            if (g_windowList.count > 1) {
+				qsort(g_windowList.array, g_windowList.count, 
+                    sizeof(WindowInfo), CompareWindowByTitle);
+			}
 
             // Resize based on number of windows
             int clientW = 1200;
