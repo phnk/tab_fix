@@ -1,5 +1,5 @@
 # tab_fix
-A Windows window switcher that uses two-letter combinations instead of endless Alt+Tab cycling.
+A win32 window switcher that uses two-letter combinations instead of endless Alt+Tab cycling.
 
 ## The Problem
 Cycling through dozens of windows with Alt+Tab is slow and tedious. You shouldn't have to press Tab 47 times to get to the window you want. Furthermore, for some reason the window position tend to change for no reason.
